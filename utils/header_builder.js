@@ -12,13 +12,10 @@ class HeaderBuilder {
         if (this.config.features?.tls_spoofing || this.config.bypass?.tls_spoofing) {
             headers = this.tlsSpoofer.getHeaders('chrome120');
         } else {
-            headers = {
-                'User-Agent': request.headers?.['user-agent'] || 'Mozilla/5.0',
-                'Accept': request.headers?.accept || '*/*',
-                'Accept-Language': request.headers?.['accept-language'] || 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br'
-            };
+            headers = {};
         }
+        
+        this.mergeCustomHeaders(headers, request.headers);
         
         headers['Host'] = parsed.hostname;
         
@@ -29,6 +26,49 @@ class HeaderBuilder {
         this.stripProxyHeaders(headers);
         
         return headers;
+    }
+    
+    mergeCustomHeaders(headers, customHeaders) {
+        if (!customHeaders) return;
+        
+        const allowedHeaders = [
+            'authorization',
+            'content-type',
+            'x-requested-with',
+            'x-csrf-token',
+            'referer',
+            'origin',
+            'range',
+            'if-modified-since',
+            'if-none-match',
+            'cookie',
+            'accept',
+            'accept-language',
+            'accept-encoding',
+            'user-agent',
+            'sec-ch-ua',
+            'sec-ch-ua-mobile',
+            'sec-ch-ua-platform',
+            'sec-fetch-dest',
+            'sec-fetch-mode',
+            'sec-fetch-site',
+            'sec-fetch-user',
+            'upgrade-insecure-requests',
+            'cache-control',
+            'pragma',
+            'dnt',
+            'sec-websocket-key',
+            'sec-websocket-version',
+            'sec-websocket-extensions',
+            'sec-websocket-protocol'
+        ];
+        
+        for (const key of Object.keys(customHeaders)) {
+            const lower = key.toLowerCase();
+            if (allowedHeaders.includes(lower)) {
+                headers[key] = customHeaders[key];
+            }
+        }
     }
     
     stripProxyHeaders(headers) {
@@ -50,12 +90,9 @@ class HeaderBuilder {
             'transfer-encoding',
             'upgrade',
             'expect',
-            'content-length'
+            'content-length',
+            'host'
         ];
-        
-        for (const header of proxyHeaders) {
-            delete headers[header];
-        }
         
         for (const key of Object.keys(headers)) {
             if (proxyHeaders.includes(key.toLowerCase())) {

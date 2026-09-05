@@ -3,6 +3,7 @@ const http = require('http');
 class PythonBypassConnector {
     constructor() {
         this.serviceUrl = 'http://localhost:5000';
+        this.timeout = 30000;
     }
     
     async fetch(url, method, headers, body) {
@@ -17,7 +18,8 @@ class PythonBypassConnector {
                 headers: {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(payload)
-                }
+                },
+                timeout: this.timeout
             };
             
             const req = http.request(options, (res) => {
@@ -28,6 +30,7 @@ class PythonBypassConnector {
                 });
             });
             
+            req.on('timeout', () => req.destroy(new Error('Python service timeout')));
             req.on('error', reject);
             req.write(payload);
             req.end();

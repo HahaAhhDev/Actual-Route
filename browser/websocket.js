@@ -18,6 +18,21 @@ class WebSocketProxy {
         
         return new Promise((resolve, reject) => {
             targetWs.on('open', () => {
+                const connection = {
+                    targetWs,
+                    lastPing: Date.now(),
+                    pingInterval: null
+                };
+                
+                connection.pingInterval = setInterval(() => {
+                    if (targetWs.readyState === WebSocket.OPEN) {
+                        targetWs.ping();
+                        connection.lastPing = Date.now();
+                    }
+                }, 30000);
+                
+                this.connections.set(targetUrl, connection);
+                
                 resolve({
                     send: (data) => {
                         if (targetWs.readyState === WebSocket.OPEN) {
@@ -31,7 +46,11 @@ class WebSocketProxy {
                         targetWs.on('close', callback);
                     },
                     close: () => {
+                        if (connection.pingInterval) {
+                            clearInterval(connection.pingInterval);
+                        }
                         targetWs.close();
+                        this.connections.delete(targetUrl);
                     }
                 });
             });

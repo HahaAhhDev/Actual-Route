@@ -6,6 +6,14 @@ module.exports = {
         host: '0.0.0.0'
     },
     
+    users: {
+        enabled: true,
+        require_login: false,
+        allow_registration: true,
+        max_users: 1000,
+        storage_limit_mb: 50
+    },
+    
     features: {
         wisp: true,
         caching: true,

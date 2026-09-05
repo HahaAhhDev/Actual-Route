@@ -35,6 +35,10 @@ class StorageManager {
     import(sessionId, data) {
         this.storage.set(sessionId, new Map(Object.entries(data || {})));
     }
+    
+    clear(sessionId) {
+        this.storage.delete(sessionId);
+    }
 }
 
 module.exports = StorageManager;

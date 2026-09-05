@@ -24,21 +24,23 @@ class Rewriter {
         rewritten = this.rewriteAction(rewritten, baseUrl);
         rewritten = this.rewriteSrcset(rewritten, baseUrl);
         rewritten = this.rewriteUrls(rewritten, baseUrl);
+        rewritten = this.rewriteMetaRefresh(rewritten, baseUrl);
         return rewritten;
     }
     
-    rewriteCss(content, baseUrl) {
-        let rewritten = content;
-        rewritten = this.rewriteUrls(rewritten, baseUrl);
-        rewritten = this.rewriteImports(rewritten, baseUrl);
-        return rewritten;
-    }
-    
-    rewriteJs(content, baseUrl) {
-        let rewritten = content;
-        rewritten = this.rewriteFetchCalls(rewritten, baseUrl);
-        rewritten = this.rewriteAjaxCalls(rewritten, baseUrl);
-        return rewritten;
+    rewriteMetaRefresh(content, baseUrl) {
+        return content.replace(/<meta[^>]*http-equiv\s*=\s*["']refresh["'][^>]*content\s*=\s*["']([^"']+)["'][^>]*>/gi, (match, refreshContent) => {
+            const urlMatch = refreshContent.match(/url\s*=\s*(.+)/i);
+            if (urlMatch) {
+                const url = urlMatch[1].trim();
+                if (!url.startsWith('data:') && !url.startsWith('#')) {
+                    const fullUrl = this.resolve(url, baseUrl);
+                    const newContent = refreshContent.replace(urlMatch[1].trim(), `${this.proxyPrefix}${encodeURIComponent(fullUrl)}`);
+                    return match.replace(refreshContent, newContent);
+                }
+            }
+            return match;
+        });
     }
     
     rewriteSrc(content, baseUrl) {
@@ -87,11 +89,23 @@ class Rewriter {
         });
     }
     
+    rewriteCss(content, baseUrl) {
+        let rewritten = this.rewriteUrls(content, baseUrl);
+        rewritten = this.rewriteImports(rewritten, baseUrl);
+        return rewritten;
+    }
+    
     rewriteImports(content, baseUrl) {
         return content.replace(/@import\s+["'](.*?)["']/gi, (match, url) => {
             const fullUrl = this.resolve(url, baseUrl);
             return `@import "${this.proxyPrefix}${encodeURIComponent(fullUrl)}"`;
         });
+    }
+    
+    rewriteJs(content, baseUrl) {
+        let rewritten = this.rewriteFetchCalls(content, baseUrl);
+        rewritten = this.rewriteAjaxCalls(rewritten, baseUrl);
+        return rewritten;
     }
     
     rewriteFetchCalls(content, baseUrl) {

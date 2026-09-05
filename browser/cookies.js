@@ -45,11 +45,6 @@ class CookieManager {
             
             let expires = null;
             let maxAge = null;
-            let domain = null;
-            let path = '/';
-            let secure = false;
-            let httpOnly = false;
-            let sameSite = null;
             
             for (const attr of parts.slice(1)) {
                 const trimmed = attr.trim();
@@ -59,16 +54,6 @@ class CookieManager {
                     expires = new Date(trimmed.substring(8)).getTime();
                 } else if (lower.startsWith('max-age=')) {
                     maxAge = parseInt(trimmed.substring(8));
-                } else if (lower.startsWith('domain=')) {
-                    domain = trimmed.substring(7);
-                } else if (lower.startsWith('path=')) {
-                    path = trimmed.substring(5);
-                } else if (lower === 'secure') {
-                    secure = true;
-                } else if (lower === 'httponly') {
-                    httpOnly = true;
-                } else if (lower.startsWith('samesite=')) {
-                    sameSite = trimmed.substring(9);
                 }
             }
             
@@ -76,13 +61,34 @@ class CookieManager {
             
             cookieMap.set(name, {
                 value,
-                expires: expiryTime,
-                domain,
-                path,
-                secure,
-                httpOnly,
-                sameSite
+                expires: expiryTime
             });
+        }
+    }
+    
+    clearSession(sessionId) {
+        for (const key of this.cookies.keys()) {
+            if (key.startsWith(`${sessionId}:`)) {
+                this.cookies.delete(key);
+            }
+        }
+    }
+    
+    exportSessionCookies(sessionId) {
+        const result = {};
+        for (const [key, cookies] of this.cookies.entries()) {
+            if (key.startsWith(`${sessionId}:`)) {
+                const hostname = key.substring(sessionId.length + 1);
+                result[hostname] = Array.from(cookies.entries());
+            }
+        }
+        return result;
+    }
+    
+    importSessionCookies(sessionId, data) {
+        for (const [hostname, cookies] of Object.entries(data || {})) {
+            const key = `${sessionId}:${hostname}`;
+            this.cookies.set(key, new Map(cookies));
         }
     }
     

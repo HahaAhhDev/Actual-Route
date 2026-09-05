@@ -5,7 +5,10 @@ const CookieManager = require('../browser/cookies.js');
 const RedirectHandler = require('../browser/redirects.js');
 const HeaderBuilder = require('../utils/header_builder.js');
 const Rewriter = require('../browser/rewriter.js');
-const TLSSpoofer = require('../bypass/tls_spoofer.js');
+const WebSocketProxy = require('../browser/websocket.js');
+const PythonBypassConnector = require('../bypass/python_connector.js');
+
+const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
 class BypassMode {
     constructor(config) {
@@ -16,12 +19,40 @@ class BypassMode {
         this.redirectHandler = new RedirectHandler();
         this.headerBuilder = new HeaderBuilder(config);
         this.rewriter = new Rewriter();
-        this.tlsSpoofer = new TLSSpoofer();
+        this.webSocketProxy = new WebSocketProxy();
+        this.pythonConnector = new PythonBypassConnector();
     }
     
     async handle(request, sessionId) {
         const targetUrl = request.url || request.targetUrl;
-        if (!targetUrl) return { status: 400, body: 'No target URL', headers: {} };
+        if (!targetUrl) return { status: 400, body: 'No target URL', headers: {}, isWebSocket: false };
+        
+        if (request.headers && request.headers.upgrade && request.headers.upgrade.toLowerCase() === 'websocket') {
+            const ws = await this.handleWebSocket(targetUrl);
+            return { status: 101, headers: { 'Upgrade': 'websocket', 'Connection': 'Upgrade' }, isWebSocket: true, websocket: ws };
+        }
+        
+        if (this.config.bypass?.cloudflare) {
+            try {
+                const pythonResponse = await this.pythonConnector.fetch(
+                    targetUrl,
+                    request.method || 'GET',
+                    request.headers || {},
+                    request.body ? Buffer.from(request.body).toString('base64') : null
+                );
+                
+                if (pythonResponse) {
+                    return {
+                        status: pythonResponse.status,
+                        headers: pythonResponse.headers,
+                        body: pythonResponse.stream,
+                        isWebSocket: false
+                    };
+                }
+            } catch (e) {
+                // Fall through
+            }
+        }
         
         for (let attempt = 0; attempt < this.retryAttempts; attempt++) {
             try {
@@ -38,16 +69,25 @@ class BypassMode {
                         continue;
                     }
                     
-                    return response;
+                    return { ...response, isWebSocket: false };
                 }
                 
-                return { status: 500, body: 'Too many redirects', headers: {} };
+                return { status: 500, body: 'Too many redirects', headers: {}, isWebSocket: false };
             } catch (e) {
                 if (attempt === this.retryAttempts - 1) {
-                    return { status: 502, body: 'Bad Gateway', headers: {}, error: e.message };
+                    return { status: 502, body: 'Bad Gateway', headers: {}, isWebSocket: false, error: e.message };
                 }
                 await this.sleep(500 * (attempt + 1));
             }
+        }
+    }
+    
+    async handleWebSocket(targetUrl) {
+        try {
+            const ws = await this.webSocketProxy.handle(null, targetUrl);
+            return ws;
+        } catch (e) {
+            return null;
         }
     }
     
@@ -81,7 +121,20 @@ class BypassMode {
                 const responseHeaders = this.cleanHeaders(res.headers, parsed);
                 
                 const chunks = [];
-                res.on('data', chunk => chunks.push(chunk));
+                let totalSize = 0;
+                
+                res.on('data', (chunk) => {
+                    totalSize += chunk.length;
+                    
+                    if (totalSize > 50 * 1024 * 1024) {
+                        req.destroy(new Error('Response too large'));
+                        reject(new Error('Response too large'));
+                        return;
+                    }
+                    
+                    chunks.push(chunk);
+                });
+                
                 res.on('end', () => {
                     const buffer = Buffer.concat(chunks);
                     const contentType = responseHeaders['content-type'] || '';
@@ -107,7 +160,22 @@ class BypassMode {
             req.on('error', reject);
             
             if (request.body) {
-                req.write(request.body);
+                let bodyData;
+                
+                if (typeof request.body === 'string') {
+                    bodyData = Buffer.from(request.body);
+                } else if (Buffer.isBuffer(request.body)) {
+                    bodyData = request.body;
+                } else {
+                    bodyData = Buffer.from(JSON.stringify(request.body));
+                }
+                
+                if (bodyData.length > MAX_BODY_SIZE) {
+                    reject(new Error('Body too large'));
+                    return;
+                }
+                
+                req.write(bodyData);
             }
             req.end();
         });
@@ -116,14 +184,8 @@ class BypassMode {
     cleanHeaders(headers, parsed) {
         const clean = {};
         const skipHeaders = [
-            'content-security-policy',
-            'x-frame-options',
-            'strict-transport-security',
-            'content-length',
-            'transfer-encoding',
-            'connection',
-            'keep-alive',
-            'upgrade'
+            'content-security-policy', 'x-frame-options', 'strict-transport-security',
+            'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'upgrade'
         ];
         
         for (const key of Object.keys(headers)) {
@@ -136,23 +198,12 @@ class BypassMode {
         if (!clean['content-type']) {
             const ext = path.extname(parsed.pathname).toLowerCase();
             const mimeTypes = {
-                '.html': 'text/html',
-                '.css': 'text/css',
-                '.js': 'application/javascript',
-                '.json': 'application/json',
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.svg': 'image/svg+xml',
-                '.webp': 'image/webp',
-                '.ico': 'image/x-icon',
-                '.woff': 'font/woff',
-                '.woff2': 'font/woff2',
-                '.ttf': 'font/ttf',
-                '.mp4': 'video/mp4',
-                '.webm': 'video/webm',
-                '.mp3': 'audio/mpeg'
+                '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
+                '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml',
+                '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff',
+                '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.mp4': 'video/mp4',
+                '.webm': 'video/webm', '.mp3': 'audio/mpeg'
             };
             clean['content-type'] = mimeTypes[ext] || 'application/octet-stream';
         }

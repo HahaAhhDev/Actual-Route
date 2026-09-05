@@ -1,14 +1,33 @@
+const CacheManager = require('./cache/cache_manager.js');
+
 class Balancer {
     constructor(config) {
         this.config = config;
         this.activeConnections = 0;
         this.maxConnections = config.bypass?.max_connections || 200;
+        this.cache = new CacheManager(config);
     }
     
     async execute(mode, request, sessionId) {
         if (this.activeConnections >= this.maxConnections) {
             throw new Error('Max connections reached');
         }
+        
+        const method = request.method || 'GET';
+        const url = request.url || request.targetUrl;
+        const cacheKey = `${method}:${sessionId || 'anon'}:${url}`;
+        
+        if (method === 'GET' && this.config.features?.caching) {
+            const cached = this.cache.get(cacheKey);
+            if (cached && cached.body && Buffer.isBuffer(cached.body)) {
+                return {
+                    status: cached.status,
+                    headers: { ...cached.headers },
+                    body: Buffer.from(cached.body)
+                };
+            }
+        }
+        
         this.activeConnections++;
         try {
             let response;
@@ -22,6 +41,15 @@ class Balancer {
                 const CustomMode = require('./modes/custom.js');
                 response = await new CustomMode(this.config).handle(request, sessionId);
             }
+            
+            if (method === 'GET' && response.status === 200 && this.config.features?.caching && response.body && Buffer.isBuffer(response.body)) {
+                this.cache.set(cacheKey, {
+                    status: response.status,
+                    headers: { ...response.headers },
+                    body: Buffer.from(response.body)
+                });
+            }
+            
             return response;
         } finally {
             this.activeConnections--;
