@@ -25,7 +25,30 @@ class Rewriter {
         rewritten = this.rewriteSrcset(rewritten, baseUrl);
         rewritten = this.rewriteUrls(rewritten, baseUrl);
         rewritten = this.rewriteMetaRefresh(rewritten, baseUrl);
+        rewritten = this.rewriteInlineJsUrls(rewritten, baseUrl);
+        rewritten = this.rewriteRelativeLinks(rewritten, baseUrl);
         return rewritten;
+    }
+    
+    rewriteRelativeLinks(content, baseUrl) {
+        // Rewrite any href that starts with / or ./ or ../ but isn't already proxied
+        return content.replace(/(href|src|action)\s*=\s*(["'])(\/[^"']*|[^"']*(?:\.\.\/|\.\/)[^"']*)\2/gi, (match, attr, quote, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('blob:')) {
+                return match;
+            }
+            
+            const fullUrl = this.resolve(url, baseUrl);
+            return `${attr}=${quote}${this.proxyPrefix}${encodeURIComponent(fullUrl)}${quote}`;
+        });
+    }
+    
+    rewriteInlineJsUrls(content, baseUrl) {
+        // Rewrite window.location and location.href assignments
+        return content.replace(/window\.location(?:\.href)?\s*=\s*["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const fullUrl = this.resolve(url, baseUrl);
+            return `window.location.href="${this.proxyPrefix}${encodeURIComponent(fullUrl)}"`;
+        });
     }
     
     rewriteMetaRefresh(content, baseUrl) {
@@ -45,7 +68,7 @@ class Rewriter {
     
     rewriteSrc(content, baseUrl) {
         return content.replace(/\bsrc\s*=\s*(["'])(.*?)\1/gi, (match, quote, url) => {
-            if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('blob:')) return match;
+            if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('blob:') || url.startsWith(this.proxyPrefix)) return match;
             const fullUrl = this.resolve(url, baseUrl);
             return `src=${quote}${this.proxyPrefix}${encodeURIComponent(fullUrl)}${quote}`;
         });
@@ -53,7 +76,7 @@ class Rewriter {
     
     rewriteHref(content, baseUrl) {
         return content.replace(/\bhref\s*=\s*(["'])(.*?)\1/gi, (match, quote, url) => {
-            if (url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('blob:')) return match;
+            if (url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('data:') || url.startsWith('blob:') || url.startsWith(this.proxyPrefix)) return match;
             const fullUrl = this.resolve(url, baseUrl);
             return `href=${quote}${this.proxyPrefix}${encodeURIComponent(fullUrl)}${quote}`;
         });
@@ -61,7 +84,7 @@ class Rewriter {
     
     rewriteAction(content, baseUrl) {
         return content.replace(/\baction\s*=\s*(["'])(.*?)\1/gi, (match, quote, url) => {
-            if (url.startsWith('#')) return match;
+            if (url.startsWith('#') || url.startsWith(this.proxyPrefix)) return match;
             const fullUrl = this.resolve(url, baseUrl);
             return `action=${quote}${this.proxyPrefix}${encodeURIComponent(fullUrl)}${quote}`;
         });
@@ -72,7 +95,7 @@ class Rewriter {
             const urls = srcset.split(',').map(src => {
                 const parts = src.trim().split(/\s+/);
                 const url = parts[0];
-                if (url.startsWith('data:') || url.startsWith('blob:')) return src.trim();
+                if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith(this.proxyPrefix)) return src.trim();
                 const fullUrl = this.resolve(url, baseUrl);
                 const descriptor = parts.slice(1).join(' ');
                 return `${this.proxyPrefix}${encodeURIComponent(fullUrl)}${descriptor ? ' ' + descriptor : ''}`.trim();
@@ -83,7 +106,7 @@ class Rewriter {
     
     rewriteUrls(content, baseUrl) {
         return content.replace(/url\((['"]?)(.*?)\1\)/gi, (match, quote, url) => {
-            if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('blob:')) return match;
+            if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('blob:') || url.startsWith(this.proxyPrefix)) return match;
             const fullUrl = this.resolve(url, baseUrl);
             return `url(${quote}${this.proxyPrefix}${encodeURIComponent(fullUrl)}${quote})`;
         });
@@ -97,6 +120,7 @@ class Rewriter {
     
     rewriteImports(content, baseUrl) {
         return content.replace(/@import\s+["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix)) return match;
             const fullUrl = this.resolve(url, baseUrl);
             return `@import "${this.proxyPrefix}${encodeURIComponent(fullUrl)}"`;
         });
@@ -105,12 +129,14 @@ class Rewriter {
     rewriteJs(content, baseUrl) {
         let rewritten = this.rewriteFetchCalls(content, baseUrl);
         rewritten = this.rewriteAjaxCalls(rewritten, baseUrl);
+        rewritten = this.rewriteInlineJsUrls(rewritten, baseUrl);
         return rewritten;
     }
     
     rewriteFetchCalls(content, baseUrl) {
         return content.replace(/fetch\s*\(\s*["'](.*?)["']/gi, (match, url) => {
-            if (url.startsWith('http') || url.startsWith('//') || url.startsWith('/')) {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('data:') || url.startsWith('blob:')) return match;
+            if (url.startsWith('http') || url.startsWith('//') || url.startsWith('/') || url.startsWith('.') || !url.includes('://')) {
                 const fullUrl = this.resolve(url, baseUrl);
                 return `fetch("${this.proxyPrefix}${encodeURIComponent(fullUrl)}"`;
             }
@@ -120,7 +146,8 @@ class Rewriter {
     
     rewriteAjaxCalls(content, baseUrl) {
         return content.replace(/(XMLHttpRequest|axios\.(get|post|put|delete|patch))\s*\(\s*["'](.*?)["']/gi, (match, method, subMethod, url) => {
-            if (url.startsWith('http') || url.startsWith('//') || url.startsWith('/')) {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('data:') || url.startsWith('blob:')) return match;
+            if (url.startsWith('http') || url.startsWith('//') || url.startsWith('/') || url.startsWith('.')) {
                 const fullUrl = this.resolve(url, baseUrl);
                 return `${method}("${this.proxyPrefix}${encodeURIComponent(fullUrl)}"`;
             }
@@ -130,6 +157,7 @@ class Rewriter {
     
     resolve(url, baseUrl) {
         try {
+            if (url.startsWith('//')) return 'https:' + url;
             return new URL(url, baseUrl).href;
         } catch {
             return url;
