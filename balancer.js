@@ -19,35 +19,22 @@ class Balancer {
         
         if (method === 'GET' && this.config.features?.caching) {
             const cached = this.cache.get(cacheKey);
-            if (cached && cached.body && Buffer.isBuffer(cached.body)) {
-                return {
-                    status: cached.status,
-                    headers: { ...cached.headers },
-                    body: Buffer.from(cached.body)
-                };
-            }
+            if (cached && cached.body) return { ...cached, body: Buffer.from(cached.body) };
         }
         
         this.activeConnections++;
         try {
             let response;
-            if (mode === 'school') {
+            if (mode === 'school' || mode === 'custom') {
                 const BypassMode = require('./modes/bypass.js');
                 response = await new BypassMode(this.config).handle(request, sessionId);
             } else if (mode === 'private') {
                 const PrivateMode = require('./modes/private.js');
                 response = await new PrivateMode(this.config).handle(request, sessionId);
-            } else {
-                const CustomMode = require('./modes/custom.js');
-                response = await new CustomMode(this.config).handle(request, sessionId);
             }
             
-            if (method === 'GET' && response.status === 200 && this.config.features?.caching && response.body && Buffer.isBuffer(response.body)) {
-                this.cache.set(cacheKey, {
-                    status: response.status,
-                    headers: { ...response.headers },
-                    body: Buffer.from(response.body)
-                });
+            if (method === 'GET' && response && response.status === 200 && this.config.features?.caching && response.body && Buffer.isBuffer(response.body)) {
+                this.cache.set(cacheKey, { status: response.status, headers: response.headers, body: Buffer.from(response.body) });
             }
             
             return response;

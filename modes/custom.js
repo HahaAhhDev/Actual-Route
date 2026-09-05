@@ -1,7 +1,5 @@
 class CustomMode {
-    constructor(config) {
-        this.config = config;
-    }
+    constructor(config) { this.config = config; }
     
     async handle(request, sessionId) {
         const BypassMode = require('./bypass.js');

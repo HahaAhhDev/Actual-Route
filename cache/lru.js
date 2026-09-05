@@ -14,32 +14,23 @@ class LRUCache {
     }
     
     set(key, value) {
-        const valueSize = Buffer.byteLength(JSON.stringify(value));
-        if (valueSize > this.maxSize) return;
-        
+        const size = Buffer.byteLength(JSON.stringify(value));
+        if (size > this.maxSize) return;
         if (this.cache.has(key)) {
             this.currentSize -= Buffer.byteLength(JSON.stringify(this.cache.get(key)));
             this.cache.delete(key);
         }
-        
-        while (this.currentSize + valueSize > this.maxSize && this.cache.size > 0) {
-            const oldestKey = this.cache.keys().next().value;
-            this.currentSize -= Buffer.byteLength(JSON.stringify(this.cache.get(oldestKey)));
-            this.cache.delete(oldestKey);
+        while (this.currentSize + size > this.maxSize && this.cache.size > 0) {
+            const oldest = this.cache.keys().next().value;
+            this.currentSize -= Buffer.byteLength(JSON.stringify(this.cache.get(oldest)));
+            this.cache.delete(oldest);
         }
-        
         this.cache.set(key, value);
-        this.currentSize += valueSize;
+        this.currentSize += size;
     }
     
-    has(key) {
-        return this.cache.has(key);
-    }
-    
-    clear() {
-        this.cache.clear();
-        this.currentSize = 0;
-    }
+    has(key) { return this.cache.has(key); }
+    clear() { this.cache.clear(); this.currentSize = 0; }
 }
 
 module.exports = LRUCache;

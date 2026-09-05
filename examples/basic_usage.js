@@ -3,17 +3,17 @@ const ActualRoute = require('../index.js');
 const ar = new ActualRoute();
 
 console.log('[AR] Mode:', ar.getMode());
-console.log('[AR] Features:', ar.getFeatures());
 
 const testRequest = {
     url: 'https://example.com',
     method: 'GET',
-    headers: { 'User-Agent': 'test' }
+    headers: {}
 };
 
 ar.route(testRequest, null).then(response => {
     console.log('[AR] Status:', response.status);
-    console.log('[AR] Response length:', response.body?.length || 0);
+    console.log('[AR] Content-Type:', response.headers?.['content-type']);
+    console.log('[AR] Body length:', response.body?.length || 0);
 }).catch(err => {
     console.log('[AR] Error:', err.message);
 });

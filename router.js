@@ -5,34 +5,16 @@ const ConfigLoader = require('./utils/config_loader.js');
 
 const PRESETS = {
     school: {
-        wisp: true,
-        caching: true,
-        compression: true,
-        streaming: true,
-        sessions: true,
-        bookmarks: true,
-        history: true,
-        tabs: true,
-        import_export: true,
-        cloudflare_bypass: true,
-        tls_spoofing: true,
-        onion_routing: false,
-        logging: false
+        wisp: true, caching: true, compression: false, streaming: false,
+        sessions: true, bookmarks: true, history: true, tabs: true,
+        import_export: true, cloudflare_bypass: false, tls_spoofing: true,
+        onion_routing: false, logging: false
     },
     private: {
-        wisp: true,
-        caching: false,
-        compression: true,
-        streaming: true,
-        sessions: true,
-        bookmarks: true,
-        history: false,
-        tabs: true,
-        import_export: true,
-        cloudflare_bypass: false,
-        tls_spoofing: true,
-        onion_routing: true,
-        logging: false
+        wisp: true, caching: false, compression: false, streaming: false,
+        sessions: true, bookmarks: true, history: false, tabs: true,
+        import_export: true, cloudflare_bypass: false, tls_spoofing: true,
+        onion_routing: true, logging: false
     }
 };
 
@@ -43,24 +25,17 @@ class ActualRoute {
         this.dispatcher = new Dispatcher(this.config);
         this.balancer = new Balancer(this.config);
         this.sessions = new SessionController(this.config);
-        
-        setInterval(() => {
-            this.sessions.cleanupExpired();
-        }, 3600 * 1000);
     }
     
     applyPreset(mode) {
         if (mode === 'custom') return;
         const preset = PRESETS[mode];
-        if (preset) {
-            this.config.features = { ...this.config.features, ...preset };
-        }
+        if (preset) this.config.features = { ...this.config.features, ...preset };
     }
     
     async route(request, sessionId) {
         const mode = this.dispatcher.determineMode(request);
-        const response = await this.balancer.execute(mode, request, sessionId);
-        return response;
+        return await this.balancer.execute(mode, request, sessionId);
     }
     
     getMode() { return this.config.mode; }

@@ -1,7 +1,6 @@
 class CookieManager {
     constructor() {
         this.cookies = new Map();
-        this.cleanupInterval = setInterval(() => this.cleanup(), 3600 * 1000);
     }
     
     getCookies(sessionId, hostname) {
@@ -10,67 +9,53 @@ class CookieManager {
         if (!cookies) return null;
         
         const now = Date.now();
-        const validCookies = [];
+        const valid = [];
         
-        for (const [name, cookieData] of cookies.entries()) {
-            if (cookieData.expires && cookieData.expires < now) {
+        for (const [name, data] of cookies.entries()) {
+            if (data.expires && data.expires < now) {
                 cookies.delete(name);
                 continue;
             }
-            validCookies.push(`${name}=${cookieData.value}`);
+            valid.push(`${name}=${data.value}`);
         }
         
-        return validCookies.length > 0 ? validCookies.join('; ') : null;
+        return valid.length > 0 ? valid.join('; ') : null;
     }
     
     setCookies(sessionId, hostname, setCookieHeaders) {
         if (!setCookieHeaders || setCookieHeaders.length === 0) return;
         
         const key = `${sessionId}:${hostname}`;
-        if (!this.cookies.has(key)) {
-            this.cookies.set(key, new Map());
-        }
+        if (!this.cookies.has(key)) this.cookies.set(key, new Map());
         
         const cookieMap = this.cookies.get(key);
         
         for (const header of setCookieHeaders) {
             const parts = header.split(';');
-            const firstPart = parts[0].trim();
-            const separator = firstPart.indexOf('=');
+            const first = parts[0].trim();
+            const sep = first.indexOf('=');
+            if (sep === -1) continue;
             
-            if (separator === -1) continue;
-            
-            const name = firstPart.substring(0, separator).trim();
-            const value = firstPart.substring(separator + 1).trim();
+            const name = first.substring(0, sep).trim();
+            const value = first.substring(sep + 1).trim();
             
             let expires = null;
             let maxAge = null;
             
             for (const attr of parts.slice(1)) {
-                const trimmed = attr.trim();
-                const lower = trimmed.toLowerCase();
-                
-                if (lower.startsWith('expires=')) {
-                    expires = new Date(trimmed.substring(8)).getTime();
-                } else if (lower.startsWith('max-age=')) {
-                    maxAge = parseInt(trimmed.substring(8));
-                }
+                const trimmed = attr.trim().toLowerCase();
+                if (trimmed.startsWith('expires=')) expires = new Date(attr.trim().substring(8)).getTime();
+                else if (trimmed.startsWith('max-age=')) maxAge = parseInt(attr.trim().substring(8));
             }
             
             const expiryTime = maxAge ? Date.now() + (maxAge * 1000) : expires;
-            
-            cookieMap.set(name, {
-                value,
-                expires: expiryTime
-            });
+            cookieMap.set(name, { value, expires: expiryTime });
         }
     }
     
     clearSession(sessionId) {
         for (const key of this.cookies.keys()) {
-            if (key.startsWith(`${sessionId}:`)) {
-                this.cookies.delete(key);
-            }
+            if (key.startsWith(`${sessionId}:`)) this.cookies.delete(key);
         }
     }
     
@@ -87,22 +72,7 @@ class CookieManager {
     
     importSessionCookies(sessionId, data) {
         for (const [hostname, cookies] of Object.entries(data || {})) {
-            const key = `${sessionId}:${hostname}`;
-            this.cookies.set(key, new Map(cookies));
-        }
-    }
-    
-    cleanup() {
-        const now = Date.now();
-        for (const [key, cookies] of this.cookies.entries()) {
-            for (const [name, cookieData] of cookies.entries()) {
-                if (cookieData.expires && cookieData.expires < now) {
-                    cookies.delete(name);
-                }
-            }
-            if (cookies.size === 0) {
-                this.cookies.delete(key);
-            }
+            this.cookies.set(`${sessionId}:${hostname}`, new Map(cookies));
         }
     }
 }

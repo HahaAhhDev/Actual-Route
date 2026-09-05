@@ -1,5 +1,3 @@
-import asyncio
-import json
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 import curl_cffi
@@ -21,39 +19,25 @@ async def fetch(request: Request):
     
     try:
         response = session.request(
-            method=method,
-            url=url,
-            headers=headers,
+            method=method, url=url, headers=headers,
             data=body.encode() if body else None,
-            stream=True,
-            timeout=30,
-            allow_redirects=False
+            stream=True, timeout=30, allow_redirects=False
         )
         
         def generate():
             for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
+                if chunk: yield chunk
         
         response_headers = {}
-        for key, value in response.headers.items():
-            if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
-                response_headers[key] = value
-        
+        for k, v in response.headers.items():
+            if k.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
+                response_headers[k] = v
         response_headers['Access-Control-Allow-Origin'] = '*'
         
-        return StreamingResponse(
-            generate(),
-            status_code=response.status_code,
-            headers=response_headers
-        )
+        return StreamingResponse(generate(), status_code=response.status_code, headers=response_headers)
     except Exception as e:
         return {"error": str(e), "status": 500}
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)

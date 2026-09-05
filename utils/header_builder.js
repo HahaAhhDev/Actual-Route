@@ -7,64 +7,26 @@ class HeaderBuilder {
     }
     
     build(request, parsed, sessionId) {
-        let headers;
+        let headers = {};
         
         if (this.config.features?.tls_spoofing || this.config.bypass?.tls_spoofing) {
             headers = this.tlsSpoofer.getHeaders('chrome120');
-        } else {
-            headers = {};
         }
         
-        this.mergeCustomHeaders(headers, request.headers);
+        if (request && request.headers) {
+            const allowed = ['authorization','content-type','referer','origin','range','cookie','x-requested-with','x-csrf-token'];
+            for (const key of Object.keys(request.headers)) {
+                const lower = key.toLowerCase();
+                if (allowed.includes(lower)) headers[key] = request.headers[key];
+            }
+        }
         
         headers['Host'] = parsed.hostname;
         headers['Accept-Encoding'] = 'identity';
         
-        if (sessionId) {
-            headers['X-Session-Id'] = sessionId;
-        }
-        
-        this.stripProxyHeaders(headers);
+        if (sessionId) headers['X-Session-Id'] = sessionId;
         
         return headers;
-    }
-    
-    mergeCustomHeaders(headers, customHeaders) {
-        if (!customHeaders) return;
-        
-        const allowedHeaders = [
-            'authorization', 'content-type', 'x-requested-with', 'x-csrf-token',
-            'referer', 'origin', 'range', 'if-modified-since', 'if-none-match',
-            'cookie', 'accept', 'accept-language', 'user-agent',
-            'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform',
-            'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'sec-fetch-user',
-            'upgrade-insecure-requests', 'cache-control', 'pragma', 'dnt'
-        ];
-        
-        for (const key of Object.keys(customHeaders)) {
-            const lower = key.toLowerCase();
-            if (allowedHeaders.includes(lower)) {
-                headers[key] = customHeaders[key];
-            }
-        }
-    }
-    
-    stripProxyHeaders(headers) {
-        const proxyHeaders = [
-            'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
-            'forwarded', 'via', 'x-real-ip', 'x-client-ip', 'client-ip',
-            'x-cluster-client-ip', 'x-originating-ip', 'true-client-ip',
-            'connection', 'proxy-connection', 'keep-alive', 'transfer-encoding',
-            'upgrade', 'expect', 'content-length', 'host', 'accept-encoding'
-        ];
-        
-        for (const key of Object.keys(headers)) {
-            if (proxyHeaders.includes(key.toLowerCase())) {
-                delete headers[key];
-            }
-        }
-        
-        headers['Accept-Encoding'] = 'identity';
     }
 }
 

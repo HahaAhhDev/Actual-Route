@@ -3,10 +3,8 @@
   "version": "1.0.0",
   "description": "A high-performance proxy framework with dual-mode routing",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "keywords": ["proxy", "cloudflare-bypass", "school-proxy", "private-browser"],
+  "scripts": { "start": "node index.js" },
+  "keywords": ["proxy", "school-proxy", "private-browser"],
   "license": "MIT",
   "engines": { "node": ">=16.0.0" }
 }

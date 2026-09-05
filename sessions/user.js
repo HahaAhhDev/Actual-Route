@@ -15,58 +15,36 @@ class UserManager {
         if (!password || password.length < 8) return { error: 'Password must be 8+ characters' };
         
         const salt = crypto.randomBytes(16).toString('hex');
-        const hash = this.hashPassword(password, salt);
+        const hash = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
         
-        const user = {
-            username,
-            salt,
-            hash,
-            sessions: [],
+        this.users.set(username, {
+            username, salt, hash, sessions: [],
             createdAt: Date.now(),
-            storageUsed: 0,
-            storageLimitMB: this.config.users?.storage_limit_mb || this.config.sessions?.storage_limit_mb || 50
-        };
-        
-        this.users.set(username, user);
-        return { success: true, user };
+            storageLimitMB: this.config.sessions?.storage_limit_mb || 50
+        });
+        return { success: true };
     }
     
     authenticate(username, password) {
         const user = this.users.get(username);
         if (!user) return false;
-        const hash = this.hashPassword(password, user.salt);
+        const hash = crypto.pbkdf2Sync(password, user.salt, 10000, 64, 'sha512').toString('hex');
         return hash === user.hash;
     }
     
-    getUser(username) {
-        return this.users.get(username);
-    }
+    getUser(username) { return this.users.get(username); }
     
     addSessionToUser(username, sessionId) {
         const user = this.users.get(username);
-        if (user) {
-            user.sessions.push(sessionId);
-        }
+        if (user) user.sessions.push(sessionId);
     }
     
     removeSessionFromUser(username, sessionId) {
         const user = this.users.get(username);
-        if (user) {
-            user.sessions = user.sessions.filter(id => id !== sessionId);
-        }
+        if (user) user.sessions = user.sessions.filter(id => id !== sessionId);
     }
     
-    listUsers() {
-        return Array.from(this.users.keys());
-    }
-    
-    removeUser(username) {
-        this.users.delete(username);
-    }
-    
-    hashPassword(password, salt) {
-        return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');
-    }
+    listUsers() { return Array.from(this.users.keys()); }
 }
 
 module.exports = UserManager;
