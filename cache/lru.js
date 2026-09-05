@@ -1,5 +1,5 @@
 class LRUCache {
-    constructor(maxSizeMB = 100) {
+    constructor(maxSizeMB = 200) {
         this.maxSize = maxSizeMB * 1024 * 1024;
         this.currentSize = 0;
         this.cache = new Map();
@@ -14,19 +14,26 @@ class LRUCache {
     }
     
     set(key, value) {
-        const valueSize = JSON.stringify(value).length;
+        const valueSize = Buffer.byteLength(JSON.stringify(value));
         if (valueSize > this.maxSize) return;
+        
         if (this.cache.has(key)) {
-            this.currentSize -= JSON.stringify(this.cache.get(key)).length;
+            this.currentSize -= Buffer.byteLength(JSON.stringify(this.cache.get(key)));
             this.cache.delete(key);
         }
+        
         while (this.currentSize + valueSize > this.maxSize && this.cache.size > 0) {
             const oldestKey = this.cache.keys().next().value;
-            this.currentSize -= JSON.stringify(this.cache.get(oldestKey)).length;
+            this.currentSize -= Buffer.byteLength(JSON.stringify(this.cache.get(oldestKey)));
             this.cache.delete(oldestKey);
         }
+        
         this.cache.set(key, value);
         this.currentSize += valueSize;
+    }
+    
+    has(key) {
+        return this.cache.has(key);
     }
     
     clear() {

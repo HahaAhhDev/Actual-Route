@@ -14,23 +14,17 @@ class StorageManager {
             this.storage.set(sessionId, new Map());
         }
         this.storage.get(sessionId).set(key, value);
+        return true;
     }
     
     remove(sessionId, key) {
         const sessionStorage = this.storage.get(sessionId);
-        if (sessionStorage) {
-            sessionStorage.delete(key);
-        }
-    }
-    
-    clear(sessionId) {
-        this.storage.delete(sessionId);
+        if (sessionStorage) sessionStorage.delete(key);
     }
     
     getAll(sessionId) {
         const sessionStorage = this.storage.get(sessionId);
         if (!sessionStorage) return {};
-        
         const result = {};
         for (const [key, value] of sessionStorage.entries()) {
             result[key] = value;
@@ -39,10 +33,7 @@ class StorageManager {
     }
     
     import(sessionId, data) {
-        if (data) {
-            const sessionStorage = new Map(Object.entries(data));
-            this.storage.set(sessionId, sessionStorage);
-        }
+        this.storage.set(sessionId, new Map(Object.entries(data || {})));
     }
 }
 

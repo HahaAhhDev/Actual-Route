@@ -1,34 +1,23 @@
+const TLSSpoofer = require('../bypass/tls_spoofer.js');
+
 class HeaderBuilder {
     constructor(config) {
         this.config = config;
+        this.tlsSpoofer = new TLSSpoofer();
     }
     
     build(request, parsed, sessionId) {
-        const headers = {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Upgrade-Insecure-Requests': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1'
-        };
+        let headers;
         
-        if (this.config.features?.tls_spoofing) {
-            headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-        }
-        
-        if (request.headers) {
-            for (const key of Object.keys(request.headers)) {
-                const lower = key.toLowerCase();
-                if (!this.isProxyHeader(lower)) {
-                    headers[key] = request.headers[key];
-                }
-            }
+        if (this.config.features?.tls_spoofing || this.config.bypass?.tls_spoofing) {
+            headers = this.tlsSpoofer.getHeaders('chrome120');
+        } else {
+            headers = {
+                'User-Agent': request.headers?.['user-agent'] || 'Mozilla/5.0',
+                'Accept': request.headers?.accept || '*/*',
+                'Accept-Language': request.headers?.['accept-language'] || 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br'
+            };
         }
         
         headers['Host'] = parsed.hostname;
@@ -37,17 +26,42 @@ class HeaderBuilder {
             headers['X-Session-Id'] = sessionId;
         }
         
+        this.stripProxyHeaders(headers);
+        
         return headers;
     }
     
-    isProxyHeader(header) {
+    stripProxyHeaders(headers) {
         const proxyHeaders = [
-            'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
-            'forwarded', 'via', 'x-real-ip', 'connection',
-            'proxy-connection', 'keep-alive', 'transfer-encoding',
-            'upgrade', 'expect'
+            'x-forwarded-for',
+            'x-forwarded-host',
+            'x-forwarded-proto',
+            'forwarded',
+            'via',
+            'x-real-ip',
+            'x-client-ip',
+            'client-ip',
+            'x-cluster-client-ip',
+            'x-originating-ip',
+            'true-client-ip',
+            'connection',
+            'proxy-connection',
+            'keep-alive',
+            'transfer-encoding',
+            'upgrade',
+            'expect',
+            'content-length'
         ];
-        return proxyHeaders.includes(header);
+        
+        for (const header of proxyHeaders) {
+            delete headers[header];
+        }
+        
+        for (const key of Object.keys(headers)) {
+            if (proxyHeaders.includes(key.toLowerCase())) {
+                delete headers[key];
+            }
+        }
     }
 }
 

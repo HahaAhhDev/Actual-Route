@@ -1,5 +1,7 @@
 const Dispatcher = require('./dispatcher.js');
 const Balancer = require('./balancer.js');
+const SessionController = require('./sessions/session_controller.js');
+const ConfigLoader = require('./utils/config_loader.js');
 
 const PRESETS = {
     school: {
@@ -36,11 +38,15 @@ const PRESETS = {
 
 class ActualRoute {
     constructor(configPath) {
-        this.config = configPath ? require(configPath) : require('./ar.config.js');
+        this.config = ConfigLoader.load(configPath);
         this.applyPreset(this.config.mode);
         this.dispatcher = new Dispatcher(this.config);
         this.balancer = new Balancer(this.config);
-        this.sessions = new (require('./sessions/manager.js'))(this.config);
+        this.sessions = new SessionController(this.config);
+        
+        setInterval(() => {
+            this.sessions.cleanupExpired();
+        }, 3600 * 1000);
     }
     
     applyPreset(mode) {

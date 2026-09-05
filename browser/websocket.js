@@ -1,36 +1,42 @@
-const { EventEmitter } = require('events');
+const WebSocket = require('ws');
 
-class WebSocketProxy extends EventEmitter {
+class WebSocketProxy {
     constructor() {
-        super();
+        this.connections = new Map();
     }
     
-    async handle(request, targetUrl) {
-        const ws = require('ws');
+    async handle(serverRequest, targetUrl) {
         const parsed = new URL(targetUrl);
         const wsUrl = `ws://${parsed.hostname}:${parsed.port || (parsed.protocol === 'https:' ? 443 : 80)}${parsed.pathname}${parsed.search}`;
         
-        const clientWs = new ws(wsUrl);
+        const targetWs = new WebSocket(wsUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Origin': parsed.origin
+            }
+        });
         
         return new Promise((resolve, reject) => {
-            clientWs.on('open', () => {
+            targetWs.on('open', () => {
                 resolve({
-                    socket: clientWs,
-                    onMessage: (callback) => {
-                        clientWs.on('message', callback);
-                    },
                     send: (data) => {
-                        if (clientWs.readyState === ws.OPEN) {
-                            clientWs.send(data);
+                        if (targetWs.readyState === WebSocket.OPEN) {
+                            targetWs.send(data);
                         }
                     },
+                    onMessage: (callback) => {
+                        targetWs.on('message', callback);
+                    },
+                    onClose: (callback) => {
+                        targetWs.on('close', callback);
+                    },
                     close: () => {
-                        clientWs.close();
+                        targetWs.close();
                     }
                 });
             });
             
-            clientWs.on('error', reject);
+            targetWs.on('error', reject);
         });
     }
 }

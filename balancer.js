@@ -2,7 +2,7 @@ class Balancer {
     constructor(config) {
         this.config = config;
         this.activeConnections = 0;
-        this.maxConnections = config.bypass?.max_connections || 50;
+        this.maxConnections = config.bypass?.max_connections || 200;
     }
     
     async execute(mode, request, sessionId) {

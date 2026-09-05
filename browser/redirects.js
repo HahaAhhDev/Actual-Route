@@ -14,6 +14,12 @@ class RedirectHandler {
             return current.protocol + '//' + current.host + location;
         }
         
+        if (location.startsWith('.')) {
+            const base = current.pathname.substring(0, current.pathname.lastIndexOf('/') + 1);
+            const resolved = new URL(base + location, current.href);
+            return resolved.href;
+        }
+        
         return current.protocol + '//' + current.host + current.pathname.substring(0, current.pathname.lastIndexOf('/') + 1) + location;
     }
 }

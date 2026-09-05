@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const net = require('net');
 
 class WispServer extends EventEmitter {
     constructor() {
@@ -7,7 +8,7 @@ class WispServer extends EventEmitter {
         this.nextConnectionId = 1;
     }
     
-    handleUpgrade(request, socket, head) {
+    handleConnection(socket) {
         const connectionId = this.nextConnectionId++;
         
         this.connections.set(connectionId, {
@@ -16,79 +17,96 @@ class WispServer extends EventEmitter {
             nextStreamId: 1
         });
         
+        socket.on('data', (data) => {
+            this.processPacket(connectionId, data);
+        });
+        
         socket.on('close', () => {
-            this.connections.delete(connectionId);
+            this.cleanupConnection(connectionId);
         });
         
         socket.on('error', () => {
-            this.connections.delete(connectionId);
+            this.cleanupConnection(connectionId);
         });
         
         return connectionId;
     }
     
-    createStream(connectionId, targetHost, targetPort) {
+    processPacket(connectionId, data) {
         const connection = this.connections.get(connectionId);
-        if (!connection) return null;
+        if (!connection) return;
         
-        const streamId = connection.nextStreamId++;
+        if (data.length < 5) return;
         
+        const packetType = data[0];
+        const streamId = data.readUInt32LE(1);
+        
+        if (packetType === 0x01) {
+            this.handleConnect(connection, streamId, data.slice(5));
+        } else if (packetType === 0x02) {
+            this.handleData(connection, streamId, data.slice(5));
+        } else if (packetType === 0x04) {
+            this.handleClose(connection, streamId);
+        }
+    }
+    
+    handleConnect(connection, streamId, payload) {
         const stream = {
             id: streamId,
-            connectionId,
-            targetHost,
-            targetPort,
+            connectionId: connection.id,
             socket: null,
-            connected: false,
-            dataBuffer: []
+            connected: false
         };
         
         connection.streams.set(streamId, stream);
-        
-        return stream;
     }
     
-    connectStream(stream) {
-        const net = require('net');
-        
-        return new Promise((resolve, reject) => {
-            stream.socket = net.connect(stream.targetPort, stream.targetHost, () => {
-                stream.connected = true;
-                resolve(stream);
-            });
-            
-            stream.socket.on('data', (data) => {
-                const connection = this.connections.get(stream.connectionId);
-                if (connection) {
-                    this.sendStreamData(connection, stream.id, data);
+    handleData(connection, streamId, payload) {
+        const stream = connection.streams.get(streamId);
+        if (stream && stream.socket && stream.connected) {
+            stream.socket.write(payload);
+        }
+    }
+    
+    handleClose(connection, streamId) {
+        const stream = connection.streams.get(streamId);
+        if (stream) {
+            if (stream.socket) {
+                stream.socket.destroy();
+            }
+            connection.streams.delete(streamId);
+        }
+    }
+    
+    cleanupConnection(connectionId) {
+        const connection = this.connections.get(connectionId);
+        if (connection) {
+            for (const stream of connection.streams.values()) {
+                if (stream.socket) {
+                    stream.socket.destroy();
                 }
-            });
-            
-            stream.socket.on('close', () => {
-                const connection = this.connections.get(stream.connectionId);
-                if (connection) {
-                    this.sendStreamClose(connection, stream.id);
-                    connection.streams.delete(stream.id);
-                }
-            });
-            
-            stream.socket.on('error', reject);
-        });
+            }
+            this.connections.delete(connectionId);
+        }
     }
     
-    sendStreamData(connection, streamId, data) {
-        connection.socket.write(this.encodePacket(streamId, data));
-    }
-    
-    sendStreamClose(connection, streamId) {
-        connection.socket.write(this.encodePacket(streamId, Buffer.alloc(0), true));
-    }
-    
-    encodePacket(streamId, data, isClose = false) {
+    sendPacket(connection, streamId, packetType, data) {
+        if (!connection || !connection.socket) return;
+        
         const header = Buffer.alloc(5);
-        header.writeUInt8(isClose ? 0x04 : 0x02, 0);
+        header[0] = packetType;
         header.writeUInt32LE(streamId, 1);
-        return Buffer.concat([header, data]);
+        
+        const packet = Buffer.concat([header, data]);
+        connection.socket.write(packet);
+    }
+    
+    sendData(connection, streamId, data) {
+        this.sendPacket(connection, streamId, 0x02, data);
+    }
+    
+    sendClose(connection, streamId) {
+        this.sendPacket(connection, streamId, 0x04, Buffer.alloc(0));
     }
 }
 
