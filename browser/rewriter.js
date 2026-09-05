@@ -10,8 +10,6 @@ class Rewriter {
             rewritten = this.rewriteHtml(rewritten, baseUrl);
         } else if (contentType.includes('text/css')) {
             rewritten = this.rewriteCss(rewritten, baseUrl);
-        } else if (contentType.includes('javascript')) {
-            rewritten = this.rewriteJsFile(rewritten, baseUrl);
         }
 
         return rewritten;
@@ -24,40 +22,73 @@ class Rewriter {
         r = this.rewriteAction(r, baseUrl);
         r = this.rewriteSrcset(r, baseUrl);
         r = this.rewriteUrls(r, baseUrl);
-        r = this.injectFormHandler(r, baseUrl);
+        r = this.rewriteInlineScripts(r, baseUrl);
         return r;
     }
 
-    injectFormHandler(content, baseUrl) {
-        const script = `
-<script>
-(function() {
-    function proxyUrl(url) {
-        return '/proxy/' + encodeURIComponent(url);
+    rewriteInlineScripts(content, baseUrl) {
+        let r = content;
+
+        r = r.replace(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/gi, (match, code) => {
+            const rewritten = this.rewriteJsCode(code, baseUrl);
+            return match.replace(code, rewritten);
+        });
+
+        r = r.replace(/window\.location(?:\.href)?\s*=\s*["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `window.location.href="${this.proxyPrefix}${encodeURIComponent(full)}"`;
+        });
+
+        r = r.replace(/window\.location\s*=\s*["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `window.location="${this.proxyPrefix}${encodeURIComponent(full)}"`;
+        });
+
+        r = r.replace(/location\.href\s*=\s*["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `location.href="${this.proxyPrefix}${encodeURIComponent(full)}"`;
+        });
+
+        r = r.replace(/location\.assign\s*\(\s*["'](.*?)["']\s*\)/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `location.assign("${this.proxyPrefix}${encodeURIComponent(full)}")`;
+        });
+
+        r = r.replace(/location\.replace\s*\(\s*["'](.*?)["']\s*\)/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('javascript:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `location.replace("${this.proxyPrefix}${encodeURIComponent(full)}")`;
+        });
+
+        return r;
     }
-    document.addEventListener('submit', function(e) {
-        var form = e.target;
-        if (!form || form.tagName !== 'FORM') return;
-        e.preventDefault();
-        e.stopPropagation();
-        
-        var action = form.getAttribute('action') || '${baseUrl}';
-        var method = (form.method || 'GET').toUpperCase();
-        var actionUrl = new URL(action, '${baseUrl}').href;
-        var formData = new FormData(form);
-        var params = new URLSearchParams(formData).toString();
-        var sep = actionUrl.includes('?') ? '&' : '?';
-        var finalUrl = actionUrl + sep + params;
-        
-        window.location.href = proxyUrl(finalUrl);
-    }, true);
-})();
-</script>`;
-        if (content.includes('</body>')) {
-            return content.replace('</body>', script + '</body>');
-        } else {
-            return content + script;
-        }
+
+    rewriteJsCode(code, baseUrl) {
+        let r = code;
+
+        r = r.replace(/fetch\s*\(\s*["'](.*?)["']/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `fetch("${this.proxyPrefix}${encodeURIComponent(full)}"`;
+        });
+
+        r = r.replace(/fetch\s*\(\s*`(.*?)`/gi, (match, url) => {
+            if (url.startsWith(this.proxyPrefix) || url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('#')) return match;
+            const full = this.resolve(url, baseUrl);
+            return `fetch(\`${this.proxyPrefix}${encodeURIComponent(full)}\``;
+        });
+
+        r = r.replace(/["'](\/(?:[^"']*))["']/g, (match, url) => {
+            if (!url.startsWith('/') || url.startsWith('//') || url.startsWith(this.proxyPrefix)) return match;
+            const full = this.resolve(url, baseUrl);
+            return `"${this.proxyPrefix}${encodeURIComponent(full)}"`;
+        });
+
+        return r;
     }
 
     rewriteHref(content, baseUrl) {
@@ -145,12 +176,6 @@ class Rewriter {
             return `@import "${this.proxyPrefix}${encodeURIComponent(this.resolve(url, baseUrl))}"`;
         });
         return r;
-    }
-
-    rewriteJsFile(content, baseUrl) {
-        // Don't rewrite JS files. Let them load through proxy as-is.
-        // The service worker handles fetch/XHR rewriting.
-        return content;
     }
 
     resolve(url, baseUrl) {

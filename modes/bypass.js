@@ -8,7 +8,6 @@ const Rewriter = require('../browser/rewriter.js');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 const MAX_RESPONSE_SIZE = 200 * 1024 * 1024;
-const MAX_REDIRECTS = 10;
 
 class BypassMode {
     constructor(config) {
@@ -21,8 +20,8 @@ class BypassMode {
     }
 
     async handle(request, sessionId) {
-        const originalUrl = request.url || request.targetUrl;
-        if (!originalUrl) {
+        const targetUrl = request.url || request.targetUrl;
+        if (!targetUrl) {
             return {
                 status: 400,
                 body: 'No target URL',
@@ -30,43 +29,7 @@ class BypassMode {
             };
         }
 
-        let currentUrl = originalUrl;
-        let currentRequest = { ...request };
-
-        for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
-            const response = await this.fetchOne(currentUrl, currentRequest, sessionId);
-
-            if (response.status >= 300 && response.status < 400 && response.location) {
-                currentUrl = this.resolveRedirect(currentUrl, response.location);
-
-                if (response.status === 302 || response.status === 303) {
-                    currentRequest = {
-                        ...currentRequest,
-                        method: 'GET',
-                        body: null
-                    };
-                }
-
-                continue;
-            }
-
-            response.finalUrl = currentUrl;
-            return response;
-        }
-
-        return {
-            status: 500,
-            body: 'Too many redirects',
-            headers: {}
-        };
-    }
-
-    resolveRedirect(currentUrl, location) {
-        try {
-            return new URL(location, currentUrl).href;
-        } catch {
-            return currentUrl;
-        }
+        return await this.fetchOne(targetUrl, request, sessionId);
     }
 
     async fetchOne(targetUrl, request, sessionId) {
@@ -100,12 +63,15 @@ class BypassMode {
 
                 const responseHeaders = this.cleanHeaders(res.headers, parsed);
 
+                // Send redirect to browser with rewritten Location
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    const absoluteLocation = this.resolveRedirect(targetUrl, res.headers.location);
+                    responseHeaders['location'] = `${this.proxyPrefix}${encodeURIComponent(absoluteLocation)}`;
+                    
                     res.resume();
                     resolve({
                         status: res.statusCode,
-                        location: res.headers.location,
-                        headers: {},
+                        headers: responseHeaders,
                         body: Buffer.alloc(0)
                     });
                     return;
@@ -137,7 +103,7 @@ class BypassMode {
                             buffer = zlib.brotliDecompressSync(buffer);
                         }
                     } catch (e) {
-                        // keep original buffer
+                        // keep original
                     }
 
                     delete responseHeaders['content-encoding'];
@@ -162,8 +128,7 @@ class BypassMode {
                     resolve({
                         status: res.statusCode,
                         headers: responseHeaders,
-                        body: body,
-                        location: null
+                        body: body
                     });
                 });
             });
@@ -192,6 +157,14 @@ class BypassMode {
 
             req.end();
         });
+    }
+
+    resolveRedirect(currentUrl, location) {
+        try {
+            return new URL(location, currentUrl).href;
+        } catch {
+            return currentUrl;
+        }
     }
 
     cleanHeaders(headers, parsed) {
