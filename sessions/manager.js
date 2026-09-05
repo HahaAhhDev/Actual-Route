@@ -24,12 +24,10 @@ class SessionManager {
     getSession(sessionId) {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
-        
         if (Date.now() > session.expiresAt) {
             this.sessions.delete(sessionId);
             return null;
         }
-        
         return session;
     }
     
@@ -49,21 +47,16 @@ class SessionManager {
     setStorage(sessionId, key, value) {
         const session = this.getSession(sessionId);
         if (!session) return false;
-        
-        const valueSize = JSON.stringify(value).length;
-        if (session.storageUsed + valueSize > this.storageLimit * 1024 * 1024) {
-            return false;
-        }
-        
+        const size = JSON.stringify(value).length;
+        if (session.storageUsed + size > this.storageLimit * 1024 * 1024) return false;
         session.storage.set(key, value);
-        session.storageUsed += valueSize;
+        session.storageUsed += size;
         return true;
     }
     
     export(sessionId) {
         const session = this.getSession(sessionId);
         if (!session) return null;
-        
         return {
             id: session.id,
             cookies: Array.from(session.cookies.entries()),

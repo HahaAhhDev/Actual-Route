@@ -40,6 +40,7 @@ class ActualRoute {
         this.applyPreset(this.config.mode);
         this.dispatcher = new Dispatcher(this.config);
         this.balancer = new Balancer(this.config);
+        this.sessions = new (require('./sessions/manager.js'))(this.config);
     }
     
     applyPreset(mode) {
@@ -56,13 +57,8 @@ class ActualRoute {
         return response;
     }
     
-    getMode() {
-        return this.config.mode;
-    }
-    
-    getFeatures() {
-        return this.config.features;
-    }
+    getMode() { return this.config.mode; }
+    getFeatures() { return this.config.features; }
 }
 
 module.exports = ActualRoute;

@@ -9,12 +9,9 @@ class Balancer {
         if (this.activeConnections >= this.maxConnections) {
             throw new Error('Max connections reached');
         }
-        
         this.activeConnections++;
-        
         try {
             let response;
-            
             if (mode === 'school') {
                 const BypassMode = require('./modes/bypass.js');
                 response = await new BypassMode(this.config).handle(request, sessionId);
@@ -25,7 +22,6 @@ class Balancer {
                 const CustomMode = require('./modes/custom.js');
                 response = await new CustomMode(this.config).handle(request, sessionId);
             }
-            
             return response;
         } finally {
             this.activeConnections--;

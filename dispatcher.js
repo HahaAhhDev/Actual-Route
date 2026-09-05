@@ -7,14 +7,10 @@ class Dispatcher {
         if (this.config.mode === 'school' || this.config.mode === 'private') {
             return this.config.mode;
         }
-        
         if (request && request.headers) {
             const override = request.headers['x-ar-mode'];
-            if (override === 'school' || override === 'private') {
-                return override;
-            }
+            if (override === 'school' || override === 'private') return override;
         }
-        
         return 'custom';
     }
 }

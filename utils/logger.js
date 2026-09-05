@@ -2,16 +2,14 @@ class Logger {
     constructor(enabled = false) {
         this.enabled = enabled;
     }
-    
     log(level, message) {
         if (!this.enabled) return;
         console.log(`[${level.toUpperCase()}] ${message}`);
     }
-    
-    debug(message) { this.log('debug', message); }
-    info(message) { this.log('info', message); }
-    warn(message) { this.log('warn', message); }
-    error(message) { this.log('error', message); }
+    debug(msg) { this.log('debug', msg); }
+    info(msg) { this.log('info', msg); }
+    warn(msg) { this.log('warn', msg); }
+    error(msg) { this.log('error', msg); }
 }
 
 module.exports = Logger;

@@ -1,11 +1,6 @@
 module.exports = {
-    mode: 'school', // 'school' | 'private' | 'custom'
-    
-    server: {
-        port: 8080,
-        host: '0.0.0.0'
-    },
-    
+    mode: 'school',
+    server: { port: 8080, host: '0.0.0.0' },
     features: {
         wisp: true,
         caching: true,
@@ -21,7 +16,6 @@ module.exports = {
         onion_routing: false,
         logging: false
     },
-    
     sessions: {
         enabled: true,
         storage_limit_mb: 50,
@@ -29,25 +23,14 @@ module.exports = {
         allow_export: true,
         allow_import: true
     },
-    
     bypass: {
         enabled: true,
         cloudflare: false,
         tls_spoofing: false,
-        challenge_solver: 'automatic',
         max_connections: 50,
         timeout: 20,
-        retry_attempts: 2
+        retry_attempts: 3
     },
-    
-    private: {
-        enabled: true,
-        routing: 'onion',
-        min_hops: 2,
-        max_hops: 5,
-        signal_transfer_rate: 'rare'
-    },
-    
     cache: {
         enabled: true,
         max_size_mb: 100,
