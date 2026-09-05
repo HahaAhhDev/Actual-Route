@@ -10,7 +10,7 @@ const WebSocketProxy = require('../browser/websocket.js');
 const PythonBypassConnector = require('../bypass/python_connector.js');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
-const MAX_RESPONSE_SIZE = 50 * 1024 * 1024;
+const MAX_RESPONSE_SIZE = 200 * 1024 * 1024;
 
 class BypassMode {
     constructor(config) {
@@ -35,26 +35,6 @@ class BypassMode {
             return { status: 101, headers: { 'Upgrade': 'websocket', 'Connection': 'Upgrade' }, isWebSocket: true, websocket: ws };
         }
         
-        if (this.config.bypass?.cloudflare) {
-            try {
-                const pythonResponse = await this.pythonConnector.fetch(
-                    targetUrl,
-                    request.method || 'GET',
-                    request.headers || {},
-                    request.body ? Buffer.from(request.body).toString('base64') : null
-                );
-                
-                if (pythonResponse && pythonResponse.stream) {
-                    return {
-                        status: pythonResponse.status,
-                        headers: this.cleanHeaders(pythonResponse.headers || {}, new URL(targetUrl)),
-                        body: pythonResponse.stream,
-                        isWebSocket: false
-                    };
-                }
-            } catch (e) {}
-        }
-        
         for (let attempt = 0; attempt < this.retryAttempts; attempt++) {
             try {
                 let currentUrl = targetUrl;
@@ -62,10 +42,24 @@ class BypassMode {
                 const maxRedirects = 15;
                 
                 while (redirectCount < maxRedirects) {
-                    const response = await this.fetch(currentUrl, request, sessionId);
+                    let response;
+                    
+                    if (this.config.bypass?.cloudflare) {
+                        response = await this.fetchViaPython(currentUrl, request, sessionId);
+                    }
+                    
+                    if (!response) {
+                        response = await this.fetchDirect(currentUrl, request, sessionId);
+                    }
                     
                     if (response.status >= 300 && response.status < 400 && response.headers.location) {
-                        currentUrl = this.redirectHandler.resolve(currentUrl, response.headers.location);
+                        const location = response.headers.location;
+                        if (location.startsWith(this.proxyPrefix)) {
+                            const decoded = decodeURIComponent(location.replace(this.proxyPrefix, ''));
+                            currentUrl = decoded;
+                        } else {
+                            currentUrl = this.redirectHandler.resolve(currentUrl, location);
+                        }
                         redirectCount++;
                         continue;
                     }
@@ -83,15 +77,71 @@ class BypassMode {
         }
     }
     
-    async handleWebSocket(targetUrl) {
+    async fetchViaPython(targetUrl, request, sessionId) {
         try {
-            return await this.webSocketProxy.handle(null, targetUrl);
+            const pythonResponse = await this.pythonConnector.fetch(
+                targetUrl,
+                request.method || 'GET',
+                request.headers || {},
+                request.body ? Buffer.from(request.body).toString('base64') : null
+            );
+            
+            if (!pythonResponse || !pythonResponse.stream) return null;
+            
+            const chunks = [];
+            let totalSize = 0;
+            
+            await new Promise((resolve, reject) => {
+                pythonResponse.stream.on('data', (chunk) => {
+                    totalSize += chunk.length;
+                    if (totalSize > MAX_RESPONSE_SIZE) {
+                        pythonResponse.stream.destroy();
+                        reject(new Error('Response too large'));
+                        return;
+                    }
+                    chunks.push(chunk);
+                });
+                pythonResponse.stream.on('end', resolve);
+                pythonResponse.stream.on('error', reject);
+            });
+            
+            const buffer = Buffer.concat(chunks);
+            const headers = pythonResponse.headers || {};
+            const contentType = headers['content-type'] || '';
+            
+            let body = buffer;
+            
+            if (contentType.includes('text/html') || contentType.includes('text/css') || contentType.includes('application/javascript') || contentType.includes('text/javascript')) {
+                const text = buffer.toString('utf-8');
+                const rewritten = this.rewriter.rewrite(text, targetUrl, contentType);
+                body = Buffer.from(rewritten, 'utf-8');
+            }
+            
+            const cleanHeaders = {};
+            for (const key of Object.keys(headers)) {
+                const lower = key.toLowerCase();
+                if (lower !== 'content-encoding' && lower !== 'transfer-encoding' && lower !== 'connection' && lower !== 'content-length') {
+                    cleanHeaders[key] = headers[key];
+                }
+            }
+            cleanHeaders['content-length'] = body.length;
+            cleanHeaders['Access-Control-Allow-Origin'] = '*';
+            
+            if (pythonResponse.status >= 300 && pythonResponse.status < 400 && cleanHeaders['location']) {
+                cleanHeaders['location'] = `${this.proxyPrefix}${encodeURIComponent(cleanHeaders['location'])}`;
+            }
+            
+            return {
+                status: pythonResponse.status,
+                headers: cleanHeaders,
+                body: body
+            };
         } catch (e) {
             return null;
         }
     }
     
-    async fetch(targetUrl, request, sessionId) {
+    async fetchDirect(targetUrl, request, sessionId) {
         return new Promise((resolve, reject) => {
             const parsed = new URL(targetUrl);
             const client = parsed.protocol === 'https:' ? https : http;
@@ -168,8 +218,9 @@ class BypassMode {
                         const text = buffer.toString('utf-8');
                         const rewritten = this.rewriter.rewrite(text, targetUrl, contentType);
                         body = Buffer.from(rewritten, 'utf-8');
-                        responseHeaders['content-length'] = body.length;
                     }
+                    
+                    responseHeaders['content-length'] = body.length;
                     
                     resolve({
                         status: res.statusCode,
@@ -201,6 +252,14 @@ class BypassMode {
             }
             req.end();
         });
+    }
+    
+    async handleWebSocket(targetUrl) {
+        try {
+            return await this.webSocketProxy.handle(null, targetUrl);
+        } catch (e) {
+            return null;
+        }
     }
     
     cleanHeaders(headers, parsed) {
