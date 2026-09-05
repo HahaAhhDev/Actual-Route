@@ -14,7 +14,13 @@ class HeaderBuilder {
         }
         
         if (request && request.headers) {
-            const allowed = ['authorization','content-type','referer','origin','range','cookie','x-requested-with','x-csrf-token'];
+            const allowed = [
+                'authorization', 'content-type', 'referer', 'origin',
+                'range', 'cookie', 'x-requested-with', 'x-csrf-token',
+                'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-extensions',
+                'sec-websocket-protocol', 'upgrade', 'connection'
+            ];
+            
             for (const key of Object.keys(request.headers)) {
                 const lower = key.toLowerCase();
                 if (allowed.includes(lower)) headers[key] = request.headers[key];

@@ -6,6 +6,11 @@ class WispServer extends EventEmitter {
         super();
         this.connections = new Map();
         this.nextId = 1;
+        this.requiredSession = null;
+    }
+    
+    setRequiredSession(sessionId) {
+        this.requiredSession = sessionId;
     }
     
     handleConnection(socket) {

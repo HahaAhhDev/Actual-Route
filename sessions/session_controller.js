@@ -11,6 +11,20 @@ class SessionController {
         this.userManager = new UserManager(config);
         this.cookieManager = new CookieManager();
         this.defaultTTL = config.sessions?.default_ttl_hours || 24;
+        
+        setInterval(() => this.cleanupRateLimit(), 300000);
+    }
+    
+    cleanupRateLimit() {
+        const now = Date.now();
+        for (const [key, requests] of rateLimitMap.entries()) {
+            const valid = requests.filter(t => now - t < 60000);
+            if (valid.length === 0) {
+                rateLimitMap.delete(key);
+            } else {
+                rateLimitMap.set(key, valid);
+            }
+        }
     }
     
     checkRateLimit(ip) {

@@ -1,3 +1,5 @@
+const MAX_COOKIES_PER_HOST = 100;
+
 class CookieManager {
     constructor() {
         this.cookies = new Map();
@@ -31,6 +33,8 @@ class CookieManager {
         const cookieMap = this.cookies.get(key);
         
         for (const header of setCookieHeaders) {
+            if (cookieMap.size >= MAX_COOKIES_PER_HOST) break;
+            
             const parts = header.split(';');
             const first = parts[0].trim();
             const sep = first.indexOf('=');
@@ -72,7 +76,8 @@ class CookieManager {
     
     importSessionCookies(sessionId, data) {
         for (const [hostname, cookies] of Object.entries(data || {})) {
-            this.cookies.set(`${sessionId}:${hostname}`, new Map(cookies));
+            const limitedCookies = cookies.slice(0, MAX_COOKIES_PER_HOST);
+            this.cookies.set(`${sessionId}:${hostname}`, new Map(limitedCookies));
         }
     }
 }
