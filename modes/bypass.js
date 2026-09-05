@@ -31,12 +31,22 @@ class BypassMode {
         }
 
         let currentUrl = originalUrl;
+        let currentRequest = { ...request };
 
         for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
-            const response = await this.fetchOne(currentUrl, request, sessionId);
+            const response = await this.fetchOne(currentUrl, currentRequest, sessionId);
 
             if (response.status >= 300 && response.status < 400 && response.location) {
                 currentUrl = this.resolveRedirect(currentUrl, response.location);
+
+                if (response.status === 302 || response.status === 303) {
+                    currentRequest = {
+                        ...currentRequest,
+                        method: 'GET',
+                        body: null
+                    };
+                }
+
                 continue;
             }
 
@@ -127,7 +137,7 @@ class BypassMode {
                             buffer = zlib.brotliDecompressSync(buffer);
                         }
                     } catch (e) {
-                        // Keep original buffer
+                        // keep original buffer
                     }
 
                     delete responseHeaders['content-encoding'];
@@ -161,7 +171,7 @@ class BypassMode {
             req.on('timeout', () => req.destroy(new Error('Timeout')));
             req.on('error', reject);
 
-            if (request.body) {
+            if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
                 let bodyData;
 
                 if (typeof request.body === 'string') {
@@ -195,7 +205,8 @@ class BypassMode {
             'connection',
             'keep-alive',
             'upgrade',
-            'content-encoding'
+            'content-encoding',
+            'set-cookie'
         ];
 
         for (const key of Object.keys(headers || {})) {

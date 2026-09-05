@@ -45,7 +45,12 @@ class ActualRoute {
         this.dispatcher = new Dispatcher(this.config);
         this.balancer = new Balancer(this.config);
         this.sessions = new SessionController(this.config);
-        
+
+        // Periodic cleanup of expired sessions
+        setInterval(() => {
+            this.sessions.cleanupExpired();
+        }, 3600 * 1000);
+
         this.logger.info('Actual Route initialized');
         this.logger.info(`Mode: ${this.config.mode}`);
     }
@@ -54,7 +59,7 @@ class ActualRoute {
         if (mode === 'custom') {
             return;
         }
-        
+
         const preset = PRESETS[mode];
         if (preset) {
             this.config.features = {
