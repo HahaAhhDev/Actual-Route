@@ -3,6 +3,9 @@ const https = require('https');
 const CookieManager = require('../browser/cookies.js');
 const RedirectHandler = require('../browser/redirects.js');
 const HeaderBuilder = require('../utils/header_builder.js');
+const Rewriter = require('../browser/rewriter.js');
+const TLSSpoofer = require('../bypass/tls_spoofer.js');
+const PythonBypassConnector = require('../bypass/python_connector.js');
 
 class BypassMode {
     constructor(config) {
@@ -12,6 +15,9 @@ class BypassMode {
         this.cookieManager = new CookieManager();
         this.redirectHandler = new RedirectHandler();
         this.headerBuilder = new HeaderBuilder(config);
+        this.rewriter = new Rewriter();
+        this.tlsSpoofer = new TLSSpoofer();
+        this.pythonConnector = new PythonBypassConnector();
     }
     
     async handle(request, sessionId) {
@@ -38,6 +44,27 @@ class BypassMode {
     }
     
     async fetch(targetUrl, request, sessionId) {
+        if (this.config.bypass?.cloudflare) {
+            try {
+                const pythonResponse = await this.pythonConnector.fetch(
+                    targetUrl,
+                    request.method || 'GET',
+                    request.headers || {},
+                    request.body || null
+                );
+                
+                if (pythonResponse) {
+                    return {
+                        status: pythonResponse.status,
+                        headers: pythonResponse.headers,
+                        body: pythonResponse.stream
+                    };
+                }
+            } catch (e) {
+                // Fall through to direct
+            }
+        }
+        
         return new Promise((resolve, reject) => {
             const parsed = new URL(targetUrl);
             const client = parsed.protocol === 'https:' ? https : http;
@@ -46,9 +73,7 @@ class BypassMode {
             
             if (sessionId) {
                 const cookies = this.cookieManager.getCookies(sessionId, parsed.hostname);
-                if (cookies) {
-                    headers['Cookie'] = cookies;
-                }
+                if (cookies) headers['Cookie'] = cookies;
             }
             
             const options = {
@@ -78,10 +103,20 @@ class BypassMode {
                     let data = [];
                     res.on('data', chunk => data.push(chunk));
                     res.on('end', () => {
+                        const contentType = res.headers['content-type'] || '';
+                        let body = Buffer.concat(data);
+                        
+                        if (contentType.includes('text/html')) {
+                            const html = body.toString('utf-8');
+                            const rewritten = this.rewriter.rewrite(html, targetUrl);
+                            body = Buffer.from(rewritten, 'utf-8');
+                            responseHeaders['content-length'] = body.length;
+                        }
+                        
                         resolve({
                             status: res.statusCode,
                             headers: responseHeaders,
-                            body: Buffer.concat(data)
+                            body: body
                         });
                     });
                 }
