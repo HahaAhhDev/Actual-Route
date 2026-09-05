@@ -1,49 +1,40 @@
 const http = require('http');
 const https = require('https');
-const path = require('path');
 const zlib = require('zlib');
-const CookieManager = require('../browser/cookies.js');
-const HeaderBuilder = require('../utils/header_builder.js');
-const Rewriter = require('../browser/rewriter.js');
-
-const MAX_BODY_SIZE = 10 * 1024 * 1024;
-const MAX_RESPONSE_SIZE = 200 * 1024 * 1024;
+const path = require('path');
 
 class BypassMode {
     constructor(config) {
         this.config = config;
         this.timeout = config.bypass?.timeout || 30;
-        this.cookieManager = new CookieManager();
-        this.headerBuilder = new HeaderBuilder(config);
-        this.rewriter = new Rewriter();
-        this.proxyPrefix = '/proxy/';
     }
 
     async handle(request, sessionId) {
         const targetUrl = request.url || request.targetUrl;
+        
         if (!targetUrl) {
-            return {
-                status: 400,
-                body: 'No target URL',
-                headers: {}
-            };
+            return { status: 400, body: 'No URL', headers: {} };
         }
 
-        return await this.fetchOne(targetUrl, request, sessionId);
+        return await this.fetch(targetUrl, request);
     }
 
-    async fetchOne(targetUrl, request, sessionId) {
+    async fetch(targetUrl, request) {
         return new Promise((resolve, reject) => {
             const parsed = new URL(targetUrl);
             const client = parsed.protocol === 'https:' ? https : http;
 
-            const headers = this.headerBuilder.build(request, parsed, sessionId);
+            const headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'identity',
+                'Host': parsed.hostname
+            };
 
-            if (sessionId) {
-                const cookies = this.cookieManager.getCookies(sessionId, parsed.hostname);
-                if (cookies) {
-                    headers['Cookie'] = cookies;
-                }
+            if (request.headers) {
+                if (request.headers['cookie']) headers['Cookie'] = request.headers['cookie'];
+                if (request.headers['content-type']) headers['Content-Type'] = request.headers['content-type'];
             }
 
             const options = {
@@ -57,17 +48,30 @@ class BypassMode {
             };
 
             const req = client.request(options, (res) => {
-                if (sessionId && res.headers['set-cookie']) {
-                    this.cookieManager.setCookies(sessionId, parsed.hostname, res.headers['set-cookie']);
+                const responseHeaders = {};
+                const skipHeaders = [
+                    'content-security-policy',
+                    'x-frame-options',
+                    'strict-transport-security',
+                    'content-length',
+                    'transfer-encoding',
+                    'connection',
+                    'keep-alive',
+                    'upgrade',
+                    'content-encoding',
+                    'set-cookie'
+                ];
+
+                for (const key of Object.keys(res.headers)) {
+                    const lower = key.toLowerCase();
+                    if (!skipHeaders.includes(lower)) {
+                        responseHeaders[key] = res.headers[key];
+                    }
                 }
 
-                const responseHeaders = this.cleanHeaders(res.headers, parsed);
-
-                // Send redirect to browser with rewritten Location
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    const absoluteLocation = this.resolveRedirect(targetUrl, res.headers.location);
-                    responseHeaders['location'] = `${this.proxyPrefix}${encodeURIComponent(absoluteLocation)}`;
-                    
+                    const location = new URL(res.headers.location, targetUrl).href;
+                    responseHeaders['location'] = `/proxy/${encodeURIComponent(location)}`;
                     res.resume();
                     resolve({
                         status: res.statusCode,
@@ -82,9 +86,9 @@ class BypassMode {
 
                 res.on('data', (chunk) => {
                     totalSize += chunk.length;
-                    if (totalSize > MAX_RESPONSE_SIZE) {
-                        req.destroy(new Error('Response too large'));
-                        reject(new Error('Response too large'));
+                    if (totalSize > 100 * 1024 * 1024) {
+                        req.destroy();
+                        reject(new Error('Too large'));
                         return;
                     }
                     chunks.push(chunk);
@@ -95,40 +99,44 @@ class BypassMode {
 
                     const encoding = res.headers['content-encoding'];
                     try {
-                        if (encoding === 'gzip') {
-                            buffer = zlib.gunzipSync(buffer);
-                        } else if (encoding === 'deflate') {
-                            buffer = zlib.inflateSync(buffer);
-                        } else if (encoding === 'br') {
-                            buffer = zlib.brotliDecompressSync(buffer);
-                        }
-                    } catch (e) {
-                        // keep original
+                        if (encoding === 'gzip') buffer = zlib.gunzipSync(buffer);
+                        else if (encoding === 'deflate') buffer = zlib.inflateSync(buffer);
+                        else if (encoding === 'br') buffer = zlib.brotliDecompressSync(buffer);
+                    } catch (e) {}
+
+                    const contentType = res.headers['content-type'] || '';
+
+                    if (contentType.includes('text/html')) {
+                        let html = buffer.toString('utf-8');
+                        
+                        html = html.replace(/\bsrc\s*=\s*(["'])(.*?)\1/gi, (m, q, url) => {
+                            if (url.startsWith('data:') || url.startsWith('#') || url.startsWith('blob:') || url.startsWith('/proxy/')) return m;
+                            const full = new URL(url, targetUrl).href;
+                            return `src=${q}/proxy/${encodeURIComponent(full)}${q}`;
+                        });
+
+                        html = html.replace(/\bhref\s*=\s*(["'])(.*?)\1/gi, (m, q, url) => {
+                            if (url.startsWith('javascript:') || url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('data:') || url.startsWith('/proxy/')) return m;
+                            const full = new URL(url, targetUrl).href;
+                            return `href=${q}/proxy/${encodeURIComponent(full)}${q}`;
+                        });
+
+                        html = html.replace(/\baction\s*=\s*(["'])(.*?)\1/gi, (m, q, url) => {
+                            if (url.startsWith('#') || url.startsWith('/proxy/')) return m;
+                            const full = new URL(url, targetUrl).href;
+                            return `action=${q}/proxy/${encodeURIComponent(full)}${q}`;
+                        });
+
+                        buffer = Buffer.from(html, 'utf-8');
                     }
 
-                    delete responseHeaders['content-encoding'];
-
-                    const contentType = responseHeaders['content-type'] || '';
-                    let body = buffer;
-
-                    if (
-                        contentType.includes('text/html') ||
-                        contentType.includes('text/css') ||
-                        contentType.includes('javascript')
-                    ) {
-                        const text = buffer.toString('utf-8');
-                        body = Buffer.from(
-                            this.rewriter.rewrite(text, targetUrl, contentType),
-                            'utf-8'
-                        );
-                    }
-
-                    responseHeaders['content-length'] = body.length;
+                    responseHeaders['content-length'] = buffer.length;
+                    responseHeaders['access-control-allow-origin'] = '*';
 
                     resolve({
                         status: res.statusCode,
                         headers: responseHeaders,
-                        body: body
+                        body: buffer
                     });
                 });
             });
@@ -136,88 +144,12 @@ class BypassMode {
             req.on('timeout', () => req.destroy(new Error('Timeout')));
             req.on('error', reject);
 
-            if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
-                let bodyData;
-
-                if (typeof request.body === 'string') {
-                    bodyData = Buffer.from(request.body);
-                } else if (Buffer.isBuffer(request.body)) {
-                    bodyData = request.body;
-                } else {
-                    bodyData = Buffer.from(JSON.stringify(request.body));
-                }
-
-                if (bodyData.length > MAX_BODY_SIZE) {
-                    reject(new Error('Body too large'));
-                    return;
-                }
-
-                req.write(bodyData);
+            if (request.body && request.method !== 'GET') {
+                req.write(request.body);
             }
-
+            
             req.end();
         });
-    }
-
-    resolveRedirect(currentUrl, location) {
-        try {
-            return new URL(location, currentUrl).href;
-        } catch {
-            return currentUrl;
-        }
-    }
-
-    cleanHeaders(headers, parsed) {
-        const clean = {};
-        const skip = [
-            'content-security-policy',
-            'x-frame-options',
-            'strict-transport-security',
-            'content-length',
-            'transfer-encoding',
-            'connection',
-            'keep-alive',
-            'upgrade',
-            'content-encoding',
-            'set-cookie'
-        ];
-
-        for (const key of Object.keys(headers || {})) {
-            const lower = key.toLowerCase();
-            if (!skip.includes(lower)) {
-                clean[key] = headers[key];
-            }
-        }
-
-        if (!clean['content-type']) {
-            const ext = path.extname(parsed.pathname).toLowerCase();
-            const mime = {
-                '.html': 'text/html; charset=utf-8',
-                '.css': 'text/css; charset=utf-8',
-                '.js': 'application/javascript; charset=utf-8',
-                '.json': 'application/json; charset=utf-8',
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.svg': 'image/svg+xml',
-                '.webp': 'image/webp',
-                '.ico': 'image/x-icon',
-                '.woff': 'font/woff',
-                '.woff2': 'font/woff2',
-                '.ttf': 'font/ttf',
-                '.mp4': 'video/mp4',
-                '.webm': 'video/webm',
-                '.mp3': 'audio/mpeg'
-            };
-            clean['content-type'] = mime[ext] || 'application/octet-stream';
-        }
-
-        clean['Access-Control-Allow-Origin'] = '*';
-        clean['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
-        clean['Access-Control-Allow-Headers'] = '*';
-
-        return clean;
     }
 }
 
