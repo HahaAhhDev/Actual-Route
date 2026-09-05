@@ -1,7 +1,13 @@
 module.exports = {
     mode: 'school',
     
-    server: { port: 8080, host: '0.0.0.0' },
+    server: {
+        port: 8080,
+        host: '0.0.0.0',
+        https: false,
+        ssl_cert: null,
+        ssl_key: null
+    },
     
     users: {
         enabled: true,
@@ -12,10 +18,20 @@ module.exports = {
     },
     
     features: {
-        wisp: true, caching: true, compression: false, streaming: false,
-        sessions: true, bookmarks: true, history: true, tabs: true,
-        import_export: true, cloudflare_bypass: false, tls_spoofing: true,
-        onion_routing: false, logging: false
+        wisp: true,
+        caching: true,
+        compression: true,
+        streaming: true,
+        sessions: true,
+        bookmarks: true,
+        history: true,
+        tabs: true,
+        import_export: true,
+        cloudflare_bypass: false,
+        tls_spoofing: true,
+        onion_routing: false,
+        logging: true,
+        hot_reload: false
     },
     
     sessions: {
@@ -35,5 +51,15 @@ module.exports = {
         retry_attempts: 3
     },
     
-    cache: { enabled: true, max_size_mb: 200, ttl_seconds: 300 }
+    cache: {
+        enabled: true,
+        max_size_mb: 200,
+        ttl_seconds: 300
+    },
+    
+    logging: {
+        enabled: true,
+        level: 'info',
+        output: 'console'
+    }
 };
