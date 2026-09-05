@@ -47,8 +47,9 @@ class Rewriter {
         var formData = new FormData(form);
         var params = new URLSearchParams(formData).toString();
         var sep = actionUrl.includes('?') ? '&' : '?';
+        var finalUrl = actionUrl + sep + params;
         
-        window.parent.location.href = proxyUrl(actionUrl + sep + params);
+        window.location.href = proxyUrl(finalUrl);
     }, true);
 })();
 </script>`;
