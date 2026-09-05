@@ -18,6 +18,7 @@ class HeaderBuilder {
         this.mergeCustomHeaders(headers, request.headers);
         
         headers['Host'] = parsed.hostname;
+        headers['Accept-Encoding'] = 'identity';
         
         if (sessionId) {
             headers['X-Session-Id'] = sessionId;
@@ -32,35 +33,12 @@ class HeaderBuilder {
         if (!customHeaders) return;
         
         const allowedHeaders = [
-            'authorization',
-            'content-type',
-            'x-requested-with',
-            'x-csrf-token',
-            'referer',
-            'origin',
-            'range',
-            'if-modified-since',
-            'if-none-match',
-            'cookie',
-            'accept',
-            'accept-language',
-            'accept-encoding',
-            'user-agent',
-            'sec-ch-ua',
-            'sec-ch-ua-mobile',
-            'sec-ch-ua-platform',
-            'sec-fetch-dest',
-            'sec-fetch-mode',
-            'sec-fetch-site',
-            'sec-fetch-user',
-            'upgrade-insecure-requests',
-            'cache-control',
-            'pragma',
-            'dnt',
-            'sec-websocket-key',
-            'sec-websocket-version',
-            'sec-websocket-extensions',
-            'sec-websocket-protocol'
+            'authorization', 'content-type', 'x-requested-with', 'x-csrf-token',
+            'referer', 'origin', 'range', 'if-modified-since', 'if-none-match',
+            'cookie', 'accept', 'accept-language', 'user-agent',
+            'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform',
+            'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'sec-fetch-user',
+            'upgrade-insecure-requests', 'cache-control', 'pragma', 'dnt'
         ];
         
         for (const key of Object.keys(customHeaders)) {
@@ -73,25 +51,11 @@ class HeaderBuilder {
     
     stripProxyHeaders(headers) {
         const proxyHeaders = [
-            'x-forwarded-for',
-            'x-forwarded-host',
-            'x-forwarded-proto',
-            'forwarded',
-            'via',
-            'x-real-ip',
-            'x-client-ip',
-            'client-ip',
-            'x-cluster-client-ip',
-            'x-originating-ip',
-            'true-client-ip',
-            'connection',
-            'proxy-connection',
-            'keep-alive',
-            'transfer-encoding',
-            'upgrade',
-            'expect',
-            'content-length',
-            'host'
+            'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+            'forwarded', 'via', 'x-real-ip', 'x-client-ip', 'client-ip',
+            'x-cluster-client-ip', 'x-originating-ip', 'true-client-ip',
+            'connection', 'proxy-connection', 'keep-alive', 'transfer-encoding',
+            'upgrade', 'expect', 'content-length', 'host', 'accept-encoding'
         ];
         
         for (const key of Object.keys(headers)) {
@@ -99,6 +63,8 @@ class HeaderBuilder {
                 delete headers[key];
             }
         }
+        
+        headers['Accept-Encoding'] = 'identity';
     }
 }
 

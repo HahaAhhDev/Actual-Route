@@ -1,6 +1,7 @@
 const http = require('http');
 const https = require('https');
 const path = require('path');
+const zlib = require('zlib');
 const CookieManager = require('../browser/cookies.js');
 const RedirectHandler = require('../browser/redirects.js');
 const HeaderBuilder = require('../utils/header_builder.js');
@@ -9,6 +10,7 @@ const WebSocketProxy = require('../browser/websocket.js');
 const PythonBypassConnector = require('../bypass/python_connector.js');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
+const MAX_RESPONSE_SIZE = 50 * 1024 * 1024;
 
 class BypassMode {
     constructor(config) {
@@ -21,6 +23,7 @@ class BypassMode {
         this.rewriter = new Rewriter();
         this.webSocketProxy = new WebSocketProxy();
         this.pythonConnector = new PythonBypassConnector();
+        this.proxyPrefix = '/proxy/';
     }
     
     async handle(request, sessionId) {
@@ -41,17 +44,15 @@ class BypassMode {
                     request.body ? Buffer.from(request.body).toString('base64') : null
                 );
                 
-                if (pythonResponse) {
+                if (pythonResponse && pythonResponse.stream) {
                     return {
                         status: pythonResponse.status,
-                        headers: pythonResponse.headers,
+                        headers: this.cleanHeaders(pythonResponse.headers || {}, new URL(targetUrl)),
                         body: pythonResponse.stream,
                         isWebSocket: false
                     };
                 }
-            } catch (e) {
-                // Fall through
-            }
+            } catch (e) {}
         }
         
         for (let attempt = 0; attempt < this.retryAttempts; attempt++) {
@@ -84,8 +85,7 @@ class BypassMode {
     
     async handleWebSocket(targetUrl) {
         try {
-            const ws = await this.webSocketProxy.handle(null, targetUrl);
-            return ws;
+            return await this.webSocketProxy.handle(null, targetUrl);
         } catch (e) {
             return null;
         }
@@ -120,28 +120,51 @@ class BypassMode {
                 
                 const responseHeaders = this.cleanHeaders(res.headers, parsed);
                 
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    const absoluteLocation = this.redirectHandler.resolve(targetUrl, res.headers.location);
+                    responseHeaders['location'] = `${this.proxyPrefix}${encodeURIComponent(absoluteLocation)}`;
+                    
+                    res.resume();
+                    resolve({
+                        status: res.statusCode,
+                        headers: responseHeaders,
+                        body: Buffer.alloc(0)
+                    });
+                    return;
+                }
+                
                 const chunks = [];
                 let totalSize = 0;
                 
                 res.on('data', (chunk) => {
                     totalSize += chunk.length;
-                    
-                    if (totalSize > 50 * 1024 * 1024) {
+                    if (totalSize > MAX_RESPONSE_SIZE) {
                         req.destroy(new Error('Response too large'));
                         reject(new Error('Response too large'));
                         return;
                     }
-                    
                     chunks.push(chunk);
                 });
                 
                 res.on('end', () => {
-                    const buffer = Buffer.concat(chunks);
+                    let buffer = Buffer.concat(chunks);
+                    
+                    const encoding = res.headers['content-encoding'];
+                    if (encoding === 'gzip') {
+                        try { buffer = zlib.gunzipSync(buffer); } catch (e) {}
+                    } else if (encoding === 'deflate') {
+                        try { buffer = zlib.inflateSync(buffer); } catch (e) {}
+                    } else if (encoding === 'br') {
+                        try { buffer = zlib.brotliDecompressSync(buffer); } catch (e) {}
+                    }
+                    
+                    delete responseHeaders['content-encoding'];
+                    
                     const contentType = responseHeaders['content-type'] || '';
                     
                     let body = buffer;
                     
-                    if (contentType.includes('text/html') || contentType.includes('text/css') || contentType.includes('application/javascript')) {
+                    if (contentType.includes('text/html') || contentType.includes('text/css') || contentType.includes('application/javascript') || contentType.includes('text/javascript')) {
                         const text = buffer.toString('utf-8');
                         const rewritten = this.rewriter.rewrite(text, targetUrl, contentType);
                         body = Buffer.from(rewritten, 'utf-8');
@@ -161,7 +184,6 @@ class BypassMode {
             
             if (request.body) {
                 let bodyData;
-                
                 if (typeof request.body === 'string') {
                     bodyData = Buffer.from(request.body);
                 } else if (Buffer.isBuffer(request.body)) {
@@ -185,10 +207,11 @@ class BypassMode {
         const clean = {};
         const skipHeaders = [
             'content-security-policy', 'x-frame-options', 'strict-transport-security',
-            'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'upgrade'
+            'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'upgrade',
+            'content-encoding'
         ];
         
-        for (const key of Object.keys(headers)) {
+        for (const key of Object.keys(headers || {})) {
             const lower = key.toLowerCase();
             if (!skipHeaders.includes(lower)) {
                 clean[key] = headers[key];
@@ -198,12 +221,12 @@ class BypassMode {
         if (!clean['content-type']) {
             const ext = path.extname(parsed.pathname).toLowerCase();
             const mimeTypes = {
-                '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
-                '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml',
-                '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff',
-                '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.mp4': 'video/mp4',
-                '.webm': 'video/webm', '.mp3': 'audio/mpeg'
+                '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+                '.js': 'application/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+                '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
+                '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
+                '.ttf': 'font/ttf', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg'
             };
             clean['content-type'] = mimeTypes[ext] || 'application/octet-stream';
         }

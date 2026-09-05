@@ -15,6 +15,8 @@ async def fetch(request: Request):
     headers = data.get('headers', {})
     body = data.get('body', None)
     
+    headers['Accept-Encoding'] = 'identity'
+    
     session = cf_requests.Session(impersonate="chrome120")
     
     try:
@@ -25,7 +27,7 @@ async def fetch(request: Request):
             data=body.encode() if body else None,
             stream=True,
             timeout=30,
-            allow_redirects=True
+            allow_redirects=False
         )
         
         def generate():
@@ -37,6 +39,8 @@ async def fetch(request: Request):
         for key, value in response.headers.items():
             if key.lower() not in ['content-encoding', 'transfer-encoding', 'connection']:
                 response_headers[key] = value
+        
+        response_headers['Access-Control-Allow-Origin'] = '*'
         
         return StreamingResponse(
             generate(),
