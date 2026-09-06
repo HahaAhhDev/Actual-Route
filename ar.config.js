@@ -1,65 +1,20 @@
 module.exports = {
+    port: 8080,
+    host: '0.0.0.0',
     mode: 'school',
-    
-    server: {
-        port: 8080,
-        host: '0.0.0.0',
-        https: false,
-        ssl_cert: null,
-        ssl_key: null
-    },
-    
-    users: {
-        enabled: true,
-        require_login: false,
-        allow_registration: true,
-        max_users: 1000,
-        storage_limit_mb: 50
-    },
-    
-    features: {
-        wisp: true,
-        caching: true,
-        compression: true,
-        streaming: true,
-        sessions: true,
-        bookmarks: true,
-        history: true,
-        tabs: true,
-        import_export: true,
-        cloudflare_bypass: false,
-        tls_spoofing: true,
-        onion_routing: false,
-        logging: true,
-        hot_reload: false
-    },
-    
+    maxBodySize: 10 * 1024 * 1024,
+    maxHtmlSize: 50 * 1024 * 1024,
+    maxAssetSize: 20 * 1024 * 1024,
+    timeout: 30,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     sessions: {
         enabled: true,
-        storage_limit_mb: 50,
         default_ttl_hours: 24,
-        allow_export: true,
-        allow_import: true
+        storage_limit_mb: 50
     },
-    
-    bypass: {
-        enabled: true,
-        cloudflare: false,
-        tls_spoofing: true,
-        max_connections: 200,
-        timeout: 30,
-        retry_attempts: 3
-    },
-    
     cache: {
         enabled: true,
-        max_size_mb: 200,
+        max_size_mb: 100,
         ttl_seconds: 300
-    },
-    
-    logging: {
-        enabled: true,
-        level: 'info',
-        output: 'console'
     }
 };
